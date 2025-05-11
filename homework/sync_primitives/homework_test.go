@@ -201,3 +201,61 @@ func TestRWMutexWithWriterPriority(t *testing.T) {
 	assert.True(t, mutualExlusionWithWriter.Load())
 	assert.Equal(t, int32(1), readersCount.Load())
 }
+
+type ReaderCountRWLock struct {
+	m           sync.Mutex
+	readerCount int64
+}
+
+func (l *ReaderCountRWLock) RLock() {
+	//atomic.AddInt64(&l.readerCount, 1)
+	l.m.Lock()
+	l.readerCount++
+	l.m.Unlock()
+}
+
+func (l *ReaderCountRWLock) RUnlock() {
+	//atomic.AddInt64(&l.readerCount, -1)
+	l.m.Lock()
+	l.readerCount--
+	l.m.Unlock()
+}
+
+func (l *ReaderCountRWLock) WUnlock() {
+	l.m.Unlock()
+}
+
+func (l *ReaderCountRWLock) WLock() {
+	for {
+		l.m.Lock()
+		if l.readerCount > 0 {
+			l.m.Unlock()
+		} else {
+			break
+		}
+	}
+}
+
+func TestRWMutexWithWriterTest(t *testing.T) {
+	mutex := ReaderCountRWLock{}
+	mutex.WLock() // writer
+
+	var mutualExlusionWithWriter atomic.Bool
+	mutualExlusionWithWriter.Store(true)
+	var mutualExlusionWithReader atomic.Bool
+	mutualExlusionWithReader.Store(true)
+
+	go func() {
+		mutex.WLock() // another writer
+		mutualExlusionWithWriter.Store(false)
+	}()
+
+	go func() {
+		mutex.RLock() // another reader
+		mutualExlusionWithReader.Store(false)
+	}()
+
+	time.Sleep(time.Second)
+	assert.True(t, mutualExlusionWithWriter.Load())
+	assert.True(t, mutualExlusionWithReader.Load())
+}
